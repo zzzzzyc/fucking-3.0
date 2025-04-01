@@ -1,0 +1,61 @@
+# VRChat OSC 插件配置
+# 此配置文件用于设置VRChat OSC插件的行为
+
+# OSC服务器设置
+osc:
+  listen_host: 127.0.0.1  # 监听地址，通常无需更改
+  listen_port: 9001       # 监听端口，与VRChat默认端口一致
+
+# 通道A配置
+channel_a:
+  # OSC参数列表，支持通配符(*)匹配多个参数
+  # 通配符使用说明：
+  # 1. * 可以匹配任意字符序列
+  # 2. 例如 "/avatar/parameters/pcs/*" 会匹配所有pcs目录下的参数
+  # 3. 例如 "/avatar/parameters/*/contact/*" 会匹配所有contact目录下的参数
+  # 4. 通配符可以出现在路径的任何位置
+  avatar_params:
+    - "/avatar/parameters/pcs/contact/enterPass"  # 精确匹配示例
+    # - "/avatar/parameters/pcs/*"                # 匹配所有PCS参数
+    # - "/avatar/parameters/*/contact/*"          # 匹配所有contact目录下的参数
+    # - "/avatar/parameters/Shock/TouchAreaA"     # 精确匹配示例
+  
+  # 工作模式: distance(距离模式) 或 shock(电击模式)
+  # distance: 根据参数值线性调整强度
+  # shock: 参数值超过阈值时触发固定强度的电击
+  mode: "distance"
+  
+  # 强度限制 (0-100)
+  # 在distance模式下，参数值会被映射到这个范围内
+  # 在shock模式下，这是触发时的固定强度值
+  strength_limit: 100
+  
+  # 触发范围设置
+  trigger_range:
+    bottom: 0.0  # 低于此值不触发
+    top: 1.0     # 高于此值视为最大强度
+
+# 通道B配置
+channel_b:
+  avatar_params:
+    - "/avatar/parameters/pcs/contact/enterPass"  # 精确匹配示例
+    # - "/avatar/parameters/lms-penis-proximityA*"  # 通配符匹配示例
+    # - "/avatar/parameters/*/proximity*"           # 匹配所有包含proximity的参数
+  
+  mode: "distance"
+  strength_limit: 100
+  trigger_range:
+    bottom: 0.0
+    top: 1.0
+
+# 波形预设配置
+wave_presets:
+  # 每个通道的默认波形预设
+  # 当设备首次连接或重置时会使用这些预设
+  default_channel_a: "Pulse"
+  default_channel_b: "Pulse"
+  
+  # 各模式使用的波形预设
+  # 当切换到对应模式时会自动使用这些预设
+  distance_mode: "Wave"    # 距离模式下使用的波形
+  shock_mode: "Pulse"      # 电击模式下使用的波形 

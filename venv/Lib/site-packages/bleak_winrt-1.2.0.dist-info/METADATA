@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: bleak-winrt
+Version: 1.2.0
+Summary: Python WinRT bindings for Bleak
+Home-page: https://github.com/dlech/bleak-winrt
+Author: Microsoft Corporation
+License: MIT
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Win32 (MS Windows)
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: Microsoft :: Windows :: Windows 10
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Topic :: System :: Operating System
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
+# bleak-winrt
+Python binding for WinRT for Bleak
