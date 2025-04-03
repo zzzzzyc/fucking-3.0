@@ -1,24 +1,44 @@
 # DG-LAB 设备控制系统
 
-这是一个用于控制 DG-LAB v2 设备的开源系统，支持蓝牙连接、多种工作模式和插件扩展。
+这是一个用于控制 DG-LAB v2 设备的开源系统，支持蓝牙连接、多种工作模式和插件扩展。该项目使用Python编写，提供了强大的可扩展性和灵活的配置选项。
 
 ## 功能特性
 
 - **蓝牙连接**：自动扫描、连接和管理 DG-LAB 设备
-- **多通道控制**：独立控制设备的 A/B 通道
-- **波形预设**：提供多种波形预设，满足不同需求
-- **插件系统**：支持功能扩展，包括：
-  - WebUI：基于网页的控制界面
-  - VRChat OSC：通过 OSC 协议接收 VRChat 参数控制设备
-  - device_monitor：被从core赶出来的小功能
-  - 更多插件正在开发中...
+- **多通道控制**：独立控制设备的 A/B 通道，可分别设置强度和波形
+- **波形预设系统**：提供多种可自定义波形预设，满足不同需求
+- **WebSocket接口**：提供标准化的WebSocket通信接口，方便扩展和集成
+- **插件系统**：支持功能扩展，目前包含以下插件：
+  - **WebUI**：基于Web的用户界面，提供直观的设备控制
+  - **VRChat OSC**：通过OSC协议接收VRChat参数控制设备，支持通配符匹配
+  - **设备监控**：提供设备状态监控、自动重连和电池电量警告等功能
 
 ## 系统要求
 
 - Python 3.8 或更高版本
 - 支持蓝牙 4.0+ (BLE)
 - DG-LAB V2 设备
-- 我不造啊
+- 操作系统：Windows 11(已测试) Windows 10 , macos , linux (理论上)
+
+## 项目结构
+
+```
+dglab-control/
+├── core/                # 核心功能模块
+│   ├── bluetooth.py     # 蓝牙通信基础功能
+│   ├── dglab_device.py  # DG-LAB设备控制类
+│   └── models.py        # 数据模型和波形预设
+├── plugins/             # 插件目录
+│   ├── device_monitor/  # 设备监控插件
+│   ├── vrchat_osc/      # VRChat OSC插件
+│   ├── webui/           # Web用户界面插件
+│   └── plugin_loader.py # 插件加载器
+├── server/              # 服务器模块
+│   └── ws_server.py     # WebSocket服务器
+├── main.py              # 主程序入口
+├── waveconfig.yaml      # 波形预设配置
+└── requirements.txt     # 依赖项列表
+```
 
 ## 快速开始
 
@@ -33,65 +53,170 @@ cd dglab-control
 2. 安装依赖
 ```bash
 python -m venv venv
-venv\\scripts\\activate
+# Windows
+venv\\Scripts\\activate
+# Linux/macOS
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
 3. 启动程序
 ```bash
-venv\\scripts\\activate
 python main.py
+```
+
+### 命令行参数
+
+程序支持多种命令行参数以自定义运行方式：
+
+```bash
+python main.py [options]
+
+选项:
+  --host HOST           指定WebSocket服务器监听地址 (默认: 127.0.0.1)
+  --port PORT           指定WebSocket服务器监听端口 (默认: 8080)
+  --device-address ADDR 直接连接指定地址的设备，跳过扫描
+  --no-scan             禁用设备自动扫描
+  --plugins-dir DIR     指定插件目录 (默认: plugins)
+  --no-plugins          不加载任何插件
+  --debug               启用调试日志
 ```
 
 ### 使用 WebUI
 
-1. 启动程序后，打开浏览器访问 `http://localhost:8080`
+1. 启动程序后，打开浏览器访问 `http://localhost:5000`
 2. 使用界面上的"扫描设备"按钮连接到 DG-LAB 设备
 3. 通过控制面板调整强度和波形设置
+4. 可以使用预设波形快速切换不同的模式
 
 ### 使用 VRChat OSC 插件
 
-1. 确保 VRChat 已设置为发送 OSC 消息（端口 9001）
-2. 在 VRChat 中使用带有 OSC 参数的头像
+1. 确保 VRChat 已设置为发送 OSC 消息（默认使用端口 9001）
+2. 在 VRChat 中使用带有 OSC 参数的avater
 3. 通过配置文件 `plugins/vrchat_osc/config.yaml` 设置触发参数和行为模式
+4. 插件将自动监听指定参数并根据配置控制设备
 
-## 配置
+## 详细配置说明
 
-主要配置文件位于各插件目录下：
+### 波形预设配置 (waveconfig.yaml)
 
-- WebUI 插件：`plugins/webui/config.yaml`
-- VRChat OSC 插件：`plugins/vrchat_osc/config.yaml`
+波形预设定义了设备的波形。每个预设包含一系列三元组 `[wave_x, wave_y, wave_z]`，设备会按顺序循环这些参数：
 
-## 插件
+```yaml
+presets:
+  # 预设名称:
+  Pulse:
+    - [10, 600, 15]  # 第一组参数 [x, y, z]
+    - [0, 0, 0]      # 第二组参数
+  
+  # 更多预设...
+```
 
+参数说明:
+- **wave_x**: 波形宽度 (0-31)
+- **wave_y**: 波形强度 (0-1023)
+- **wave_z**: 波形频率 (0-31)
+- **(应该是吧)(())
 ### WebUI 插件
 
-提供基于 Web 的控制界面，包括设备连接、强度控制、波形设置等功能。
+WebUI 插件提供基于Web的设备控制界面，启动后可以通过浏览器访问。
+
+#### 功能:
+- 设备连接和断开
+- 强度和波形参数调整
+- 波形预设选择
+- 设备状态监控
+- 操作日志
+
+默认访问地址: `http://localhost:5000`
 
 ### VRChat OSC 插件
 
-监听 VRChat 发送的 OSC 消息，根据参数值控制设备行为。支持：
+VRChat OSC 插件能够接收来自 VRChat 的 OSC 消息并控制设备。
 
-- **距离模式**：根据参数值线性调整强度
-- **电击模式**：参数超过阈值时触发固定强度的电击
-- **通配符匹配**：支持 `*` 匹配多个参数
-- **波形预设**：为不同模式配置专用波形
+#### 配置文件 (plugins/vrchat_osc/config.yaml):
+
+```yaml
+osc:
+  listen_host: 127.0.0.1
+  listen_port: 9001
+
+channel_a:
+  # OSC 参数列表，支持通配符(*)
+  avatar_params:
+    - "/avatar/parameters/pcs/contact/enterPass"
+    - "/avatar/parameters/pcs/*"  # 匹配所有 pcs 下的参数
+  
+  # 工作模式: distance(距离模式) 或 shock(电击模式)
+  mode: "distance"
+  
+  # 强度限制 (0-100)
+  strength_limit: 100
+  
+  # 触发范围
+  trigger_range:
+    bottom: 0.0  # 低于此值不触发
+    top: 1.0     # 高于此值视为最大强度
+
+# channel_b 配置类似...
+
+wave_presets:
+  # 默认波形预设
+  default_channel_a: "Pulse"
+  default_channel_b: "Pulse"
+  
+  # 各模式使用的预设
+  distance_mode: "Wave"
+  shock_mode: "Pulse"
+```
+
+#### 工作模式:
+
+1. **距离模式 (distance)**:
+   - 根据参数值线性调整强度
+   - 参数从 bottom 到 top 对应强度从 0 到 strength_limit
+
+2. **电击模式 (shock)**:
+   - 参数值超过阈值时触发固定强度的电击
+   - 触发后会自动恢复到 0
+
+### 设备监控插件
+
+设备监控插件提供自动化的设备状态监控功能。
+
+#### 配置文件 (plugins/device_monitor/config.yaml):
+
+```yaml
+monitor:
+  check_interval: 30       # 状态检查间隔（秒）
+  battery_warning: 20      # 电池电量警告阈值（百分比）
+  auto_reconnect: true     # 是否启用自动重连
+  reconnect_interval: 5    # 重连尝试间隔（秒）
+  max_reconnect_attempts: 3 # 最大重连尝试次数
+```
+
+#### 功能:
+- 定期检查设备连接状态
+- 断开时自动尝试重连
+- 低电量警告
+- 状态信息广播到 WebUI
 
 ## 开发计划
 
 ### 阶段一：核心功能完善（已完成）
 - OSC 参数通配符支持
-- 波形预设优化
+- 波形预设优化与外部配置
 - 设备状态监控
 
 ### 阶段二：工作模式优化（进行中）
-- 距离模式改进（响应曲线、多参数聚合）
-- 电击模式改进（可配置持续时间、冷却期）
+- 改进改进改进改进改进改进改进
+- 修bug修bug修bug修bug修bug修bug
 - 错误处理与日志完善
+- 基本复现官方app功能
 
-### 阶段三：UI 集成
-- 配置界面优化
-- 数据可视化
+### 阶段三：（计划中）
+- 优化优化优化优化优化优化优化
+- 新功能新功能新功能新功能新功能新功能
 - 高级控制面板
 
 ## 故障排除
@@ -99,9 +224,15 @@ python main.py
 如遇到问题，请尝试：
 
 1. 启用调试模式 `python main.py --debug`
-2. 检查蓝牙连接状态
+2. 检查蓝牙连接状态，确保设备已开启并在范围内
 3. 确认配置文件格式正确
-4. 查看日志文件 `logs/dglab.log`
+4. 检查端口冲突，特别是 OSC 监听端口（默认 9001）
+5. 查看日志输出以获取详细错误信息
+
+常见问题：
+- **设备无法连接**: 确保蓝牙已启用，设备已开启且电量充足
+- **OSC 消息不触发**: 检查 VRChat OSC 设置和插件配置中的参数路径是否匹配
+- **WebUI 无法访问**: 检查防火墙设置，确保端口 5000 未被占用
 
 ## 贡献
 

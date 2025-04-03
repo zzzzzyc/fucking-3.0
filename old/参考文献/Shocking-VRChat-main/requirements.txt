@@ -1,9 +1,0 @@
-flask
-flask[async]
-loguru
-websockets
-python-osc
-pyyaml
-tuya-connector-python
-pyyaml
-flask

@@ -5,6 +5,8 @@
 
 import asyncio
 import logging
+import os
+import yaml
 from typing import Dict, Any
 from bleak import BleakClient
 
@@ -30,13 +32,51 @@ DEFAULT_CONFIG = {
 
 def set_ws_server(server):
     """设置WebSocket服务器引用"""
-    global ws_server
+    global ws_server, device
     ws_server = server
+    # 获取设备引用
+    if hasattr(server, 'device'):
+        device = server.device
+
+async def load_config() -> None:
+    """加载插件配置"""
+    global config
+    
+    # 配置文件路径
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    yaml_config_path = os.path.join(base_dir, "config.yaml")
+    
+    # 尝试加载YAML配置
+    if os.path.exists(yaml_config_path):
+        try:
+            with open(yaml_config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            logger.info("已从YAML文件加载配置")
+            return
+        except Exception as e:
+            logger.error(f"加载YAML配置失败: {str(e)}")
+    
+    # 如果配置加载失败，使用默认配置并创建配置文件
+    config = DEFAULT_CONFIG.copy()
+    
+    # 创建YAML配置文件
+    try:
+        with open(yaml_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        logger.info("已创建默认YAML配置文件")
+    except Exception as e:
+        logger.error(f"创建YAML配置文件失败: {str(e)}")
 
 def setup() -> None:
     """插件初始化"""
-    global config
-    config = DEFAULT_CONFIG
+    global config, monitor_task
+    
+    # 加载配置
+    asyncio.ensure_future(load_config())
+    
+    # 启动监控任务
+    monitor_task = asyncio.create_task(check_device_status())
+    
     logger.info("设备监控插件已初始化")
 
 async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,9 +90,15 @@ async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: 处理结果
     """
+    global config
+    
     try:
         if data.get("type") != "plugin_device_monitor":
             return {"status": "ignored"}
+            
+        # 确保配置已加载
+        if config is None:
+            return {"status": "error", "message": "配置尚未加载完成"}
             
         action = data.get("action")
         if action == "get_status":
@@ -86,7 +132,11 @@ async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def check_device_status() -> None:
     """定期检查设备状态"""
-    global device
+    global device, config
+    
+    # 等待配置加载完成
+    while config is None:
+        await asyncio.sleep(0.1)
     
     while True:
         try:
@@ -114,7 +164,12 @@ async def check_device_status() -> None:
 
 async def handle_disconnection() -> None:
     """处理设备断开连接"""
-    global device
+    global device, config
+    
+    # 确保配置已加载
+    if config is None:
+        logger.warning("配置尚未加载，使用默认值")
+        config = DEFAULT_CONFIG.copy()
     
     if not config["monitor"]["auto_reconnect"]:
         await broadcast_status("设备已断开连接", "error")

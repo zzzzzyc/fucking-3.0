@@ -161,24 +161,36 @@ def register_osc_handlers(patterns: List[str], handler: Callable) -> None:
 
 def handle_channel_a(address: str, *args: Any) -> None:
     """处理通道A的OSC消息"""
+    global config
     value = sanitize_osc_param(args)
     logger.debug(f"通道A收到OSC消息: {address} = {value}")
     
+    # 等待配置加载完成
+    if not config:
+        logger.warning("配置尚未加载，无法处理OSC消息")
+        return
+    
     # 根据配置的模式处理参数
-    if DEFAULT_CONFIG["channel_a"]["mode"] == "distance":
+    if config["channel_a"]["mode"] == "distance":
         asyncio.create_task(handle_distance_mode("A", value))
-    elif DEFAULT_CONFIG["channel_a"]["mode"] == "shock":
+    elif config["channel_a"]["mode"] == "shock":
         asyncio.create_task(handle_shock_mode("A", value))
 
 def handle_channel_b(address: str, *args: Any) -> None:
     """处理通道B的OSC消息"""
+    global config
     value = sanitize_osc_param(args)
     logger.debug(f"通道B收到OSC消息: {address} = {value}")
     
+    # 等待配置加载完成
+    if not config:
+        logger.warning("配置尚未加载，无法处理OSC消息")
+        return
+    
     # 根据配置的模式处理参数
-    if DEFAULT_CONFIG["channel_b"]["mode"] == "distance":
+    if config["channel_b"]["mode"] == "distance":
         asyncio.create_task(handle_distance_mode("B", value))
-    elif DEFAULT_CONFIG["channel_b"]["mode"] == "shock":
+    elif config["channel_b"]["mode"] == "shock":
         asyncio.create_task(handle_shock_mode("B", value))
 
 def sanitize_osc_param(args: Tuple) -> float:
