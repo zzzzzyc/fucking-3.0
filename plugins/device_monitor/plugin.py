@@ -103,15 +103,16 @@ async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
         action = data.get("action")
         if action == "get_status":
             # 获取当前状态
-            if device and device.client:
-                battery = await device.client.read_gatt_char(device.CHAR_BATTERY)
-                battery_level = battery[0]
+            if device and device.is_connected:
+                # 确保状态已更新
+                await device.update_battery()
+                battery_level = device.state.battery
                 return {
                     "status": "success",
                     "data": {
                         "connected": True,
                         "battery": battery_level,
-                        "address": device.address
+                        "address": device.device_address
                     }
                 }
             else:
@@ -120,7 +121,7 @@ async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
                     "data": {
                         "connected": False,
                         "battery": 0,
-                        "address": None
+                        "address": device.device_address if device else None
                     }
                 }
         else:
@@ -140,10 +141,10 @@ async def check_device_status() -> None:
     
     while True:
         try:
-            if device and device.client:
+            if device and device.is_connected:
                 # 检查电池电量
-                battery = await device.client.read_gatt_char(device.CHAR_BATTERY)
-                battery_level = battery[0]
+                await device.update_battery()
+                battery_level = device.state.battery
                 
                 # 如果电池电量低于警告阈值，发送警告
                 if battery_level <= config["monitor"]["battery_warning"]:
@@ -152,10 +153,9 @@ async def check_device_status() -> None:
                         "warning"
                     )
                 
-                # 检查连接状态
-                if not device.client.is_connected:
-                    await handle_disconnection()
-                    
+            elif device:
+                await handle_disconnection()
+                
             await asyncio.sleep(config["monitor"]["check_interval"])
             
         except Exception as e:

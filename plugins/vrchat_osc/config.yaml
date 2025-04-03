@@ -5,6 +5,8 @@
 osc:
   listen_host: 127.0.0.1  # 监听地址，通常无需更改
   listen_port: 9001       # 监听端口，与VRChat默认端口一致
+  throttle_interval_ms: 100 # 强度更新节流间隔（毫秒），建议50-200
+  strength_scale_factor: 0.1 # 强度转换系数：实际发送的强度 = 目标强度 × 系数（值>1增强体感，<1减弱体感）
 
 # 通道A配置
 channel_a:

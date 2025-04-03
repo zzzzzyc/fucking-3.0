@@ -35,7 +35,9 @@ config = None
 DEFAULT_CONFIG = {
     "osc": {
         "listen_host": "127.0.0.1",
-        "listen_port": 9001
+        "listen_port": 9001,
+        "throttle_interval_ms": 100, # 新增：强度更新节流间隔（毫秒）
+        "strength_scale_factor": 0.1  # 新增：强度转换系数，默认
     },
     "channel_a": {
         "avatar_params": [
@@ -67,8 +69,11 @@ DEFAULT_CONFIG = {
     }
 }
 
-# 记录上次的强度值，用于平滑过渡
-last_strength = {"A": 0, "B": 0}
+# 记录目标强度值和上次发送的强度值，用于节流
+target_strength = {"A": 0, "B": 0}
+last_sent_strength = {"A": -1, "B": -1} # 初始化为-1以确保首次更新
+strength_sender_task = None
+THROTTLE_INTERVAL = 0.1 # 默认节流间隔 (秒)
 
 # 添加波形缓存变量，避免频繁切换相同波形
 wave_cache = {
@@ -206,7 +211,10 @@ def sanitize_osc_param(args: Tuple) -> float:
     
     # 处理数值
     if isinstance(value, (int, float)):
-        return max(0.0, min(1.0, float(value)))
+        # 将OSC参数限制在0.0到1.0之间
+        clamped_value = max(0.0, min(1.0, float(value)))
+        # logger.debug(f"Sanitized OSC value: {clamped_value}") # 添加日志记录
+        return clamped_value
     
     # 无法处理的类型，返回0
     logger.warning(f"无法处理的OSC参数类型: {type(value)}")
@@ -238,11 +246,11 @@ async def handle_distance_mode(channel: str, value: float) -> None:
         preset_name = config.get("wave_presets", {}).get("distance_mode", "Wave")
         await ensure_device_wave(channel, preset_name)
     
-    # 更新设备强度
-    await update_device_strength(channel, target_strength)
+    # 更新目标强度值 (节流处理)
+    update_target_strength(channel, target_strength)
     
     # 播报状态
-    await broadcast_status(f"通道{channel} 距离: {value:.2f}, 归一化: {normalized_value:.2f}, 强度: {target_strength}")
+    await broadcast_status(f"通道{channel} 距离: {value:.2f}, 归一化: {normalized_value:.2f}, 目标强度: {target_strength}")
 
 async def handle_shock_mode(channel: str, value: float) -> None:
     """处理电击模式"""
@@ -259,46 +267,115 @@ async def handle_shock_mode(channel: str, value: float) -> None:
             preset_name = config.get("wave_presets", {}).get("shock_mode", "Pulse")
             await ensure_device_wave(channel, preset_name)
         
-        # 设置最大强度
-        await update_device_strength(channel, strength_limit)
+        # 设置目标强度 (节流处理)
+        update_target_strength(channel, strength_limit)
         
         # 2秒后恢复为0
-        await broadcast_status(f"通道{channel} 触发电击，强度: {strength_limit}")
+        await broadcast_status(f"通道{channel} 触发电击，目标强度: {strength_limit}")
         
-        # 创建任务在2秒后将强度设置回0
-        asyncio.create_task(reset_strength_after_delay(channel, 2.0))
+        # 创建任务在指定延迟后将目标强度设置回0
+        asyncio.create_task(reset_target_strength_after_delay(channel, 2.0))
 
-async def reset_strength_after_delay(channel: str, delay: float) -> None:
-    """延迟后重置强度为0"""
+async def reset_target_strength_after_delay(channel: str, delay: float) -> None:
+    """延迟后重置目标强度为0"""
     await asyncio.sleep(delay)
-    await update_device_strength(channel, 0)
-    await broadcast_status(f"通道{channel} 电击结束")
+    update_target_strength(channel, 0) # 更新目标强度
+    await broadcast_status(f"通道{channel} 电击结束，目标强度恢复为0")
 
-async def update_device_strength(channel: str, strength: int) -> None:
-    """更新设备强度"""
-    # 确保设备已连接
-    if not device or not device.is_connected:
-        logger.warning(f"设备未连接，无法设置强度")
-        return
+# 修改: 不再直接发送，只更新目标值
+def update_target_strength(channel: str, strength: int) -> None:
+    """更新目标强度值，由节流任务发送"""
+    global target_strength
+    # 确保强度在0-100之间
+    clamped_strength = max(0, min(100, strength))
+    if target_strength[channel] != clamped_strength:
+        target_strength[channel] = clamped_strength
+        # logger.debug(f"通道 {channel} 目标强度更新为: {clamped_strength}") # 调试日志
+
+# 新增: 节流发送强度任务
+async def _throttled_strength_sender() -> None:
+    """定期检查目标强度并发送更新到设备"""
+    global last_sent_strength, running, device, THROTTLE_INTERVAL, config
+
+    logger.info(f"启动强度节流发送任务，间隔: {THROTTLE_INTERVAL:.3f} 秒")
     
-    # 记录新的强度值
-    global last_strength
-    last_strength[channel] = strength
+    # 默认强度转换系数为1.0
+    strength_scale = 1.0
     
-    # 根据通道设置强度
+    # 尝试从配置获取强度转换系数
     try:
-        if channel == "A":
-            # 使用正确的属性路径设置A通道强度
-            device.state.channel_a.strength = strength
-            await device.set_strength(strength, device.state.channel_b.strength)
-        else:
-            # 使用正确的属性路径设置B通道强度
-            device.state.channel_b.strength = strength
-            await device.set_strength(device.state.channel_a.strength, strength)
-        
-        logger.info(f"已设置通道{channel}强度为{strength}")
+        strength_scale = config.get("osc", {}).get("strength_scale_factor", 1.0)
+        if strength_scale <= 0:
+            logger.warning(f"强度转换系数 ({strength_scale}) 不合法，重置为默认值 1.0")
+            strength_scale = 1.0
+        logger.info(f"使用强度转换系数: {strength_scale}，目标强度将乘以此系数")
     except Exception as e:
-        logger.error(f"设置强度失败: {str(e)}")
+        logger.error(f"读取强度转换系数失败: {e}，使用默认值 1.0")
+    
+    error_count = 0
+    while running:
+        try:
+            await asyncio.sleep(THROTTLE_INTERVAL)
+
+            if not device:
+                logger.debug("设备实例不存在，跳过本次发送 (等待设备连接)")
+                continue
+                
+            if not device.is_connected:
+                # 如果设备断开，重置上次发送状态，以便连接后立即发送
+                if last_sent_strength["A"] != -1 or last_sent_strength["B"] != -1:
+                    last_sent_strength = {"A": -1, "B": -1}
+                    logger.debug("设备未连接，已重置上次发送状态")
+                continue # 设备未连接，跳过本次发送
+
+            # 应用强度转换系数计算实际发送强度 (先转换为浮点数，再取整)
+            raw_ts_a = int(target_strength["A"] * float(strength_scale))
+            raw_ts_b = int(target_strength["B"] * float(strength_scale))
+            
+            # 确保强度在有效范围内 (0-100)
+            ts_a = max(0, min(100, raw_ts_a))
+            ts_b = max(0, min(100, raw_ts_b))
+
+            # 只有当目标强度与上次发送的强度不同时才发送
+            if ts_a != last_sent_strength["A"] or ts_b != last_sent_strength["B"]:
+                logger.debug(f"节流发送强度: A={ts_a} (原值: {target_strength['A']}×{strength_scale}={raw_ts_a}), " +
+                           f"B={ts_b} (原值: {target_strength['B']}×{strength_scale}={raw_ts_b})")
+                try:
+                    # 不管怎样，发送前先检查设备连接状态
+                    if not device.is_connected:
+                        logger.warning("设备断开连接，跳过本次强度发送")
+                        continue
+                    
+                    # 即使强度为0也发送，以便清除之前的强度设置
+                    await device.set_strength(ts_a, ts_b)
+                    last_sent_strength["A"] = ts_a
+                    last_sent_strength["B"] = ts_b
+                    
+                    # 重置错误计数
+                    if error_count > 0:
+                        error_count = 0
+                        
+                    logger.info(f"通过节流任务设置强度成功: A={ts_a}, B={ts_b} (原始强度: A={target_strength['A']}, B={target_strength['B']})")
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"节流发送强度失败 (第{error_count}次): {e}")
+                    # 发送失败时重置 last_sent_strength 让下次强制重试
+                    last_sent_strength = {"A": -1, "B": -1}
+                    
+                    # 如果连续失败超过5次，等待较长时间
+                    if error_count >= 5:
+                        logger.error(f"连续失败{error_count}次，暂停10秒后继续...")
+                        await asyncio.sleep(10)
+                        error_count = 0
+        except asyncio.CancelledError:
+            logger.info("强度节流任务被取消")
+            break
+        except Exception as e:
+            logger.error(f"强度节流任务错误: {e}")
+            # 短暂暂停后继续运行
+            await asyncio.sleep(1)
+            
+    logger.info("强度节流任务结束")
 
 async def broadcast_status(message: str) -> None:
     """广播状态消息到所有连接的WebSocket客户端"""
@@ -361,23 +438,39 @@ async def load_config() -> None:
             logger.error(f"加载JSON配置失败: {str(e)}")
     
     # 如果两种配置都加载失败，使用默认配置并创建配置文件
-    config = DEFAULT_CONFIG.copy()
-    
-    # 创建YAML配置文件
-    try:
-        with open(yaml_config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        logger.info("已创建默认YAML配置文件")
-    except Exception as e:
-        logger.error(f"创建YAML配置文件失败: {str(e)}")
-        
-        # 如果YAML创建失败，尝试创建JSON配置
+    if config is None: # 检查config是否仍为None
+        config = DEFAULT_CONFIG.copy()
+        logger.info("使用默认配置")
+        # 尝试创建配置文件...
+        # 创建YAML配置文件
         try:
-            with open(json_config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-            logger.info("已创建默认JSON配置文件")
+            with open(yaml_config_path, "w", encoding="utf-8") as f:
+                yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            logger.info("已创建默认YAML配置文件")
         except Exception as e:
-            logger.error(f"创建JSON配置文件失败: {str(e)}")
+            logger.error(f"创建YAML配置文件失败: {str(e)}")
+            # 尝试创建JSON配置
+            try:
+                with open(json_config_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=4, ensure_ascii=False)
+                logger.info("已创建默认JSON配置文件")
+            except Exception as e:
+                logger.error(f"创建JSON配置文件失败: {str(e)}")
+    else:
+        # 确保加载的配置包含必要的字段
+        if "osc" not in config:
+            config["osc"] = DEFAULT_CONFIG["osc"].copy()
+        else:
+            # 检查并添加缺少的字段
+            for key, value in DEFAULT_CONFIG["osc"].items():
+                if key not in config["osc"]:
+                    config["osc"][key] = value
+                    logger.info(f"配置中缺少 {key}，已添加默认值: {value}")
+
+    # 更新节流间隔
+    global THROTTLE_INTERVAL
+    THROTTLE_INTERVAL = config.get("osc", {}).get("throttle_interval_ms", 100) / 1000.0
+    THROTTLE_INTERVAL = max(0.05, THROTTLE_INTERVAL) # 限制最小间隔为50ms
 
 async def save_config() -> None:
     """保存插件配置"""
@@ -407,19 +500,43 @@ async def save_config() -> None:
 
 def setup():
     """插件设置函数，加载插件时调用"""
-    global server_task
+    global server_task, strength_sender_task, running
     
     try:
-        # 创建配置加载任务
-        asyncio.ensure_future(load_config())
-        # 创建服务器启动任务
-        server_task = asyncio.ensure_future(start_osc_server())
+        # 确保 running 标志为 True
+        running = True
         
-        # 初始化设备波形 - 设置为脉冲模式
-        if device and device.is_connected:
-            asyncio.ensure_future(init_device_wave())
+        # 创建任务链设置，确保顺序执行
+        def config_loaded_callback(future):
+            try:
+                # 配置加载完成，可以继续初始化其他部分
+                logger.info("配置加载完成，开始初始化OSC服务器和节流任务")
+                
+                # 创建服务器启动任务
+                global server_task, strength_sender_task
+                server_task = asyncio.ensure_future(start_osc_server())
+                logger.info("OSC服务器任务已启动")
+                
+                # 创建强度节流发送任务
+                strength_sender_task = asyncio.ensure_future(_throttled_strength_sender())
+                logger.info("强度节流任务已启动")
+                
+                # 如果设备已连接，初始化波形
+                if device and device.is_connected:
+                    logger.info("设备已连接，初始化波形...")
+                    asyncio.ensure_future(init_device_wave())
+                else:
+                    logger.warning("设备未连接，将在设备连接后初始化波形")
+            except Exception as e:
+                logger.error(f"初始化服务任务失败: {e}")
         
-        logger.info("VRChat OSC插件已加载")
+        # 先加载配置（异步），并设置回调
+        logger.info("开始加载配置...")
+        config_future = asyncio.ensure_future(load_config())
+        config_future.add_done_callback(config_loaded_callback)
+        
+        logger.info("VRChat OSC插件已加载，等待配置和初始化完成")
+        
     except Exception as e:
         logger.error(f"VRChat OSC插件加载失败: {e}")
         raise
@@ -460,11 +577,17 @@ async def init_device_wave():
 
 def cleanup():
     """插件清理函数，卸载插件时调用"""
-    global running, server_task, osc_server
+    global running, server_task, osc_server, strength_sender_task
     
     try:
-        # 停止OSC服务器
+        # 停止OSC服务器和节流任务
         running = False
+        
+        # 取消强度节流任务
+        if strength_sender_task and not strength_sender_task.done():
+            strength_sender_task.cancel()
+            logger.info("强度节流发送任务已取消")
+            strength_sender_task = None
         
         # 关闭OSC服务器
         if osc_server and hasattr(osc_server, 'transport') and osc_server.transport:
@@ -611,10 +734,16 @@ def set_ws_server(server):
     
     # 获取设备引用
     if hasattr(server, 'device'):
+        # 检查设备实例是否改变或首次设置
+        new_device_instance = server.device is not device
         device = server.device
-        # 设备就绪后初始化波形
-        if device and device.is_connected:
+        # 设备就绪后初始化波形 (仅在首次设置或设备实例改变时)
+        if device and device.is_connected and new_device_instance:
+            logger.info("检测到设备实例或首次设置，初始化波形...")
             asyncio.ensure_future(init_device_wave())
+        # 重置上次发送强度，以便在新设备上强制发送初始强度
+        global last_sent_strength
+        last_sent_strength = {"A": -1, "B": -1}
 
 async def ensure_device_wave(channel: str, preset_name: str = None) -> None:
     """
