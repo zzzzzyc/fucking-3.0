@@ -295,26 +295,20 @@ class DGLabWebSocketServer:
                     "message": f"连接设备错误: {str(e)}"
                 }))
                 
-        # 为插件预留的消息处理
-        elif message_type.startswith("plugin_"):
-            plugin_name = message_type[7:]  # 移除"plugin_"前缀
-            if plugin_name in self.plugins:
+        # 尝试通过插件处理消息
+        try:
+            # 如果有插件，尝试让插件处理消息
+            for plugin_name, handler in self.plugins.items():
                 try:
-                    result = await self.plugins[plugin_name](self.device, data)
-                    await websocket.send(json.dumps({
-                        "type": f"plugin_{plugin_name}_result",
-                        "result": result
-                    }))
+                    logger.debug(f"插件 {plugin_name} 尝试处理消息: {message_type}")
+                    handled = await handler(websocket, data)
+                    if handled:
+                        logger.debug(f"消息被插件 {plugin_name} 处理")
+                        return
                 except Exception as e:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": f"插件处理错误: {str(e)}"
-                    }))
-            else:
-                await websocket.send(json.dumps({
-                    "type": "error",
-                    "message": f"未找到插件: {plugin_name}"
-                }))
+                    logger.error(f"插件 {plugin_name} 处理消息错误: {e}")
+        except Exception as e:
+            logger.error(f"调用插件处理消息时出错: {e}")
         
         else:
             await websocket.send(json.dumps({
@@ -408,14 +402,43 @@ class DGLabWebSocketServer:
     
     def register_plugin(self, name: str, handler: Callable) -> None:
         """
-        注册插件处理函数
+        注册插件消息处理函数
         
         Args:
             name: 插件名称
-            handler: 处理函数，签名为 async def handler(device, data) -> Any
+            handler: 消息处理函数
         """
         if name in self.plugins:
-            logger.warning(f"插件 {name} 已存在，将被覆盖")
+            logger.warning(f"插件 {name} 已经注册，将被覆盖")
         
         self.plugins[name] = handler
-        logger.info(f"插件 {name} 已注册") 
+        logger.info(f"插件 {name} 已注册消息处理函数")
+        
+        # 广播插件注册事件给所有客户端
+        self._broadcast_to_clients({
+            "type": "plugin_registered",
+            "plugin_name": name
+        })
+
+    def _broadcast_to_clients(self, message: Dict[str, Any]) -> None:
+        """
+        向所有已连接的客户端广播消息
+        
+        Args:
+            message: 要广播的消息
+        """
+        if not self.clients:
+            return
+            
+        message_json = json.dumps(message)
+        
+        # 创建异步任务发送消息
+        async def send_to_all():
+            for client_id, client in list(self.clients.items()):
+                try:
+                    await client.send(message_json)
+                except Exception as e:
+                    logger.error(f"向客户端 {client_id} 广播消息失败: {e}")
+        
+        # 在事件循环中执行发送任务
+        asyncio.create_task(send_to_all()) 

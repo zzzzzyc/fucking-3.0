@@ -10,6 +10,11 @@
     <div class="container">
         <h1>DG-LAB 设备控制面板</h1>
         
+        <!-- 头部扩展区域 -->
+        <div class="extension-container header-extensions">
+            {{EXTENSIONS_HEADER}}
+        </div>
+        
         <div class="status-panel">
             <div id="connection-status" class="status-indicator">
                 <span class="status-dot disconnected"></span>
@@ -101,6 +106,11 @@
                 </div>
             </div>
             
+            <!-- 控制面板扩展区域 -->
+            <div class="extension-container control-panel-extensions">
+                {{EXTENSIONS_CONTROL_PANEL}}
+            </div>
+            
             <div class="device-controls">
                 <button id="scan-btn">扫描设备</button>
                 <button id="disconnect-btn">断开连接</button>
@@ -119,6 +129,11 @@
         <div class="log-panel">
             <h3>日志</h3>
             <div id="log-content"></div>
+        </div>
+        
+        <!-- 底部扩展区域 -->
+        <div class="extension-container footer-extensions">
+            {{EXTENSIONS_FOOTER}}
         </div>
     </div>
     
@@ -181,6 +196,23 @@
                     logMessage(`收到WebSocket消息: ${event.data.substring(0, 100)}${event.data.length > 100 ? '...' : ''}`);
                     
                     const data = JSON.parse(event.data);
+                    
+                    // 通过自定义事件广播消息，其他插件可以监听
+                    try {
+                        // 创建一个新的自定义事件，附带收到的WebSocket数据
+                        const messageEvent = new CustomEvent('websocketMessage', { 
+                            detail: data,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        messageEvent.data = data;  // 直接附加到事件对象上
+                        
+                        // 广播事件
+                        window.dispatchEvent(messageEvent);
+                    } catch (e) {
+                        console.error('广播WebSocket消息事件失败:', e);
+                    }
+                    
                     handleMessage(data);
                 } catch (e) {
                     logMessage(`消息解析错误: ${e.message}`);
@@ -199,82 +231,68 @@
         
         // 处理接收的消息
         function handleMessage(data) {
-            if (data.type === 'state') {
-                lastState = data;
+            // 通过自定义事件广播消息，其他插件可以监听
+            try {
+                // 创建一个新的自定义事件，附带收到的WebSocket数据
+                const messageEvent = new CustomEvent('websocketMessage', { 
+                    detail: data,
+                    bubbles: true,
+                    cancelable: true
+                });
+                messageEvent.data = data;  // 直接附加到事件对象上
                 
-                // 检查数据格式
-                if (data.data) {
-                    // 如果状态在data子对象中
-                    const stateData = data.data;
-                    updateDeviceStatus(stateData.connected);
-                    updateBatteryStatus(stateData.battery);
-                    
-                    // 加载波形预设
-                    if (stateData.wave_presets) {
-                        loadWavePresets(stateData.wave_presets);
-                    }
-                    
-                    if (stateData.channel_a) {
-                        updateStrengthValues(
-                            stateData.channel_a.strength || 0, 
-                            stateData.channel_b?.strength || 0
-                        );
-                        
-                        // 检查波形数据的格式
-                        if (Array.isArray(stateData.channel_a.wave) && stateData.channel_a.wave.length >= 3) {
-                            updateWaveParams('A', stateData.channel_a.wave[0], stateData.channel_a.wave[1], stateData.channel_a.wave[2]);
-                        } else {
-                            updateWaveParams(
-                                'A',
-                                stateData.channel_a.wave_x || 0,
-                                stateData.channel_a.wave_y || 0,
-                                stateData.channel_a.wave_z || 0
-                            );
-                        }
-                        
-                        if (stateData.channel_b && Array.isArray(stateData.channel_b.wave) && stateData.channel_b.wave.length >= 3) {
-                            updateWaveParams('B', stateData.channel_b.wave[0], stateData.channel_b.wave[1], stateData.channel_b.wave[2]);
-                        } else if (stateData.channel_b) {
-                            updateWaveParams(
-                                'B',
-                                stateData.channel_b.wave_x || 0,
-                                stateData.channel_b.wave_y || 0,
-                                stateData.channel_b.wave_z || 0
-                            );
-                        }
-                    }
-                } else {
-                    // 直接使用data对象
-                    updateDeviceStatus(data.connected);
-                    updateBatteryStatus(data.battery);
-                    
-                    // 加载波形预设
-                    if (data.wave_presets) {
-                        loadWavePresets(data.wave_presets);
-                    }
-                    
-                    updateStrengthValues(data.channel_a?.strength || 0, data.channel_b?.strength || 0);
-                    updateWaveParams(
-                        'A', 
-                        data.channel_a?.wave_x || 0, 
-                        data.channel_a?.wave_y || 0, 
-                        data.channel_a?.wave_z || 0
-                    );
-                    updateWaveParams(
-                        'B', 
-                        data.channel_b?.wave_x || 0, 
-                        data.channel_b?.wave_y || 0, 
-                        data.channel_b?.wave_z || 0
-                    );
+                // 广播事件
+                window.dispatchEvent(messageEvent);
+                
+                // 执行所有注册的WebSocket消息处理器
+                if (window.handleWebSocketMessage) {
+                    window.handleWebSocketMessage(data);
+                }
+            } catch (e) {
+                console.error('广播WebSocket消息事件失败:', e);
+            }
+            
+            // 处理不同类型的消息
+            if (data.type === 'state') {
+                // 更新设备状态
+                const deviceState = data.data || data;
+                
+                // 直接使用data对象
+                updateDeviceStatus(deviceState.connected);
+                updateBatteryStatus(deviceState.battery);
+                
+                // 加载波形预设
+                if (deviceState.wave_presets) {
+                    loadWavePresets(deviceState.wave_presets);
                 }
                 
+                updateStrengthValues(deviceState.channel_a?.strength || 0, deviceState.channel_b?.strength || 0);
+                updateWaveParams(
+                    'A', 
+                    deviceState.channel_a?.wave?.[0] || 0, 
+                    deviceState.channel_a?.wave?.[1] || 0, 
+                    deviceState.channel_a?.wave?.[2] || 0
+                );
+                updateWaveParams(
+                    'B', 
+                    deviceState.channel_b?.wave?.[0] || 0, 
+                    deviceState.channel_b?.wave?.[1] || 0, 
+                    deviceState.channel_b?.wave?.[2] || 0
+                );
+                
                 // 记录状态日志
-                logMessage(`设备状态: ${data.data?.connected || data.connected ? '已连接' : '未连接'}`);
+                logMessage(`设备状态: ${deviceState.connected ? '已连接' : '未连接'}`);
             } else if (data.type === 'error') {
                 logMessage(`错误: ${data.message}`);
-            } else {
-                // 记录其他类型消息
-                logMessage(`收到消息: ${data.type}`);
+            } else if (data.type === 'log_message') {
+                // 处理插件发送的日志消息
+                logMessage(`插件消息: ${data.message}`);
+            } else if (data.type === 'plugin_registered') {
+                // 记录插件注册信息
+                logMessage(`插件已注册: ${data.plugin_name}`);
+            } else if (data.type !== 'sync_status_updated') { // 避免重复处理sync_status_updated，由事件监听器处理
+                // 未知类型的消息
+                logMessage(`收到其他类型消息: ${data.type}`);
             }
         }
         
@@ -290,11 +308,34 @@
             });
             
             strengthA.addEventListener('change', () => {
-                sendMessage({
-                    type: 'set_strength',
-                    channel_a: parseInt(strengthA.value),
-                    channel_b: parseInt(strengthB.value)
-                });
+                const strengthAValue = parseInt(strengthA.value);
+                const strengthBValue = parseInt(strengthB.value);
+                
+                // 检查是否启用了A/B通道同步
+                const syncEnabled = document.getElementById('ab-channel-sync').checked;
+                if (syncEnabled) {
+                    // 如果启用了同步，B通道值跟随A通道
+                    strengthB.value = strengthAValue;
+                    document.getElementById('strength-b-value').textContent = strengthAValue;
+                    
+                    // 发送消息时两个通道值相同
+                    sendMessage({
+                        type: 'set_strength',
+                        channel_a: strengthAValue,
+                        channel_b: strengthAValue
+                    });
+                    
+                    logMessage(`设置强度: A=${strengthAValue}, B=${strengthAValue} (同步模式)`);
+                } else {
+                    // 未启用同步，正常发送
+                    sendMessage({
+                        type: 'set_strength',
+                        channel_a: strengthAValue,
+                        channel_b: strengthBValue
+                    });
+                    
+                    logMessage(`设置强度: A=${strengthAValue}, B=${strengthBValue}`);
+                }
             });
             
             strengthB.addEventListener('input', () => {
@@ -303,11 +344,28 @@
             });
             
             strengthB.addEventListener('change', () => {
-                sendMessage({
-                    type: 'set_strength',
-                    channel_a: parseInt(strengthA.value),
-                    channel_b: parseInt(strengthB.value)
-                });
+                const strengthAValue = parseInt(strengthA.value);
+                const strengthBValue = parseInt(strengthB.value);
+                
+                // 检查是否启用了A/B通道同步
+                const syncEnabled = document.getElementById('ab-channel-sync').checked;
+                if (syncEnabled) {
+                    // 如果启用了同步，B通道不应该被手动更改
+                    // 恢复B通道的值为A通道的值
+                    strengthB.value = strengthAValue;
+                    document.getElementById('strength-b-value').textContent = strengthAValue;
+                    
+                    logMessage('A/B通道同步已启用，B通道值自动跟随A通道');
+                } else {
+                    // 未启用同步，正常发送
+                    sendMessage({
+                        type: 'set_strength',
+                        channel_a: strengthAValue,
+                        channel_b: strengthBValue
+                    });
+                    
+                    logMessage(`设置强度: A=${strengthAValue}, B=${strengthBValue}`);
+                }
             });
             
             // 波形参数控制
@@ -391,13 +449,51 @@
             });
         }
         
-        // 发送波形参数
+        // 发送波形参数 - 修改以支持同步
         function sendWaveParams(channel) {
             const channelLower = channel.toLowerCase();
             const x = parseInt(document.getElementById(`wave-${channelLower}-x`).value);
             const y = parseInt(document.getElementById(`wave-${channelLower}-y`).value);
             const z = parseInt(document.getElementById(`wave-${channelLower}-z`).value);
             
+            // 检查是否启用了A/B通道同步
+            const syncEnabled = document.getElementById('ab-channel-sync').checked;
+            
+            if (channel === 'A' && syncEnabled) {
+                // A通道变更时，同时将B通道设为相同的值
+                
+                // 更新B通道UI元素的值
+                document.getElementById('wave-b-x').value = x;
+                document.getElementById('wave-b-y').value = y;
+                document.getElementById('wave-b-z').value = z;
+                document.getElementById('wave-b-x-value').textContent = x;
+                document.getElementById('wave-b-y-value').textContent = y;
+                document.getElementById('wave-b-z-value').textContent = z;
+                
+                logMessage(`设置通道 A 波形参数: X=${x}, Y=${y}, Z=${z} (同步至B通道)`);
+            } else if (channel === 'B' && syncEnabled) {
+                // 如果启用了同步，B通道不应被手动更改
+                // 从A通道获取值来重置B通道的值
+                const aX = parseInt(document.getElementById('wave-a-x').value);
+                const aY = parseInt(document.getElementById('wave-a-y').value);
+                const aZ = parseInt(document.getElementById('wave-a-z').value);
+                
+                // 恢复B通道UI元素的值
+                document.getElementById('wave-b-x').value = aX;
+                document.getElementById('wave-b-y').value = aY;
+                document.getElementById('wave-b-z').value = aZ;
+                document.getElementById('wave-b-x-value').textContent = aX;
+                document.getElementById('wave-b-y-value').textContent = aY;
+                document.getElementById('wave-b-z-value').textContent = aZ;
+                
+                logMessage('A/B通道同步已启用，B通道波形参数自动跟随A通道');
+                return; // 不发送消息
+            } else {
+                // 未启用同步或者是A通道（未启用同步），正常发送
+                logMessage(`设置通道 ${channel} 波形参数: X=${x}, Y=${y}, Z=${z}`);
+            }
+            
+            // 发送消息
             sendMessage({
                 type: 'set_wave',
                 channel: channel,
@@ -405,8 +501,6 @@
                 wave_y: y,
                 wave_z: z
             });
-            
-            logMessage(`设置通道 ${channel} 波形参数: X=${x}, Y=${y}, Z=${z}`);
         }
         
         // 更新连接状态
@@ -489,6 +583,90 @@
             zValue.textContent = z;
         }
         
+        // 为预设波形添加同步支持
+        function createPresetItem(channel, preset) {
+            const channelLower = channel.toLowerCase();
+            const container = document.getElementById(`presets-${channelLower}`);
+            
+            // 创建预设元素
+            const item = document.createElement('div');
+            item.className = 'preset-item';
+            
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = `preset-${channelLower}`;
+            radio.id = `preset-${channelLower}-${preset}`;
+            radio.value = preset;
+            
+            const label = document.createElement('label');
+            label.htmlFor = `preset-${channelLower}-${preset}`;
+            label.textContent = preset.replace(/_/g, ' ');
+            
+            item.appendChild(radio);
+            item.appendChild(label);
+            container.appendChild(item);
+            
+            // 添加事件监听
+            radio.addEventListener('change', () => {
+                if (radio.checked) {
+                    const syncEnabled = document.getElementById('ab-channel-sync').checked;
+                    
+                    if (channel === 'A' && syncEnabled) {
+                        // 同步模式下，A通道的预设同时应用到B通道
+                        // 找到B通道中对应的预设并选中
+                        const bPreset = document.getElementById(`preset-b-${preset}`);
+                        if (bPreset) {
+                            bPreset.checked = true;
+                        }
+                        
+                        // 发送同步消息
+                        sendMessage({
+                            type: 'set_wave_preset',
+                            channel: 'A',
+                            preset_name: preset,
+                            sync_to_b: true  // 告诉后端这是一个需要同步的请求
+                        });
+                        
+                        logMessage(`应用预设: ${preset} 到通道 A (同步至B通道)`);
+                    } else if (channel === 'B' && syncEnabled) {
+                        // 同步模式下，B通道不应被手动更改
+                        // 找到A通道当前选中的预设
+                        const aPresets = document.getElementsByName('preset-a');
+                        let aPresetSelected = '';
+                        for (const aPreset of aPresets) {
+                            if (aPreset.checked) {
+                                aPresetSelected = aPreset.value;
+                                break;
+                            }
+                        }
+                        
+                        // 重置B通道的选择为与A通道相同
+                        if (aPresetSelected) {
+                            const bPreset = document.getElementById(`preset-b-${aPresetSelected}`);
+                            if (bPreset) {
+                                bPreset.checked = true;
+                            }
+                            logMessage('A/B通道同步已启用，B通道预设自动跟随A通道');
+                        }
+                        
+                        // 不发送消息
+                        radio.checked = false;  // 取消当前选择
+                    } else {
+                        // 未启用同步，正常发送
+                        sendMessage({
+                            type: 'set_wave_preset',
+                            channel: channel,
+                            preset_name: preset
+                        });
+                        
+                        logMessage(`应用预设: ${preset} 到通道 ${channel}`);
+                    }
+                }
+            });
+            
+            return item;
+        }
+        
         // 加载波形预设
         function loadWavePresets(presets) {
             if (!presets || !Array.isArray(presets) || presets.length === 0) {
@@ -505,64 +683,10 @@
             // 为每个预设创建单选按钮
             presets.forEach(preset => {
                 // 创建通道A的预设
-                const itemA = document.createElement('div');
-                itemA.className = 'preset-item';
-                
-                const radioA = document.createElement('input');
-                radioA.type = 'radio';
-                radioA.name = 'preset-a';
-                radioA.id = `preset-a-${preset}`;
-                radioA.value = preset;
-                
-                const labelA = document.createElement('label');
-                labelA.htmlFor = `preset-a-${preset}`;
-                labelA.textContent = preset.replace(/_/g, ' ');
-                
-                itemA.appendChild(radioA);
-                itemA.appendChild(labelA);
-                presetsA.appendChild(itemA);
-                
-                // 添加事件监听
-                radioA.addEventListener('change', () => {
-                    if (radioA.checked) {
-                        sendMessage({
-                            type: 'set_wave_preset',
-                            channel: 'A',
-                            preset_name: preset
-                        });
-                        logMessage(`应用预设: ${preset} 到通道 A`);
-                    }
-                });
+                createPresetItem('A', preset);
                 
                 // 创建通道B的预设
-                const itemB = document.createElement('div');
-                itemB.className = 'preset-item';
-                
-                const radioB = document.createElement('input');
-                radioB.type = 'radio';
-                radioB.name = 'preset-b';
-                radioB.id = `preset-b-${preset}`;
-                radioB.value = preset;
-                
-                const labelB = document.createElement('label');
-                labelB.htmlFor = `preset-b-${preset}`;
-                labelB.textContent = preset.replace(/_/g, ' ');
-                
-                itemB.appendChild(radioB);
-                itemB.appendChild(labelB);
-                presetsB.appendChild(itemB);
-                
-                // 添加事件监听
-                radioB.addEventListener('change', () => {
-                    if (radioB.checked) {
-                        sendMessage({
-                            type: 'set_wave_preset',
-                            channel: 'B',
-                            preset_name: preset
-                        });
-                        logMessage(`应用预设: ${preset} 到通道 B`);
-                    }
-                });
+                createPresetItem('B', preset);
             });
             
             logMessage(`已加载 ${presets.length} 个波形预设`);
@@ -589,6 +713,94 @@
         
         // 页面加载完成后初始化
         window.addEventListener('load', init);
+        
+        // 监听WebSocket消息更新同步状态
+        window.addEventListener('websocketMessage', function(event) {
+            try {
+                const data = event.data;
+                if (data.type === 'sync_status_updated') {
+                    document.getElementById('ab-channel-sync').checked = data.enabled;
+                    updateChannelBState(data.enabled);
+                }
+            } catch (e) {
+                console.error('处理同步状态消息错误:', e);
+            }
+        });
+        
+        // 添加通道B禁用/启用功能
+        function updateChannelBState(syncEnabled) {
+            const channelBDiv = document.querySelector('.channel:nth-child(2)');
+            if (!channelBDiv) return;
+            
+            const inputs = channelBDiv.querySelectorAll('input, button');
+            const presetItems = channelBDiv.querySelectorAll('.preset-item');
+            
+            if (syncEnabled) {
+                // 禁用B通道控制
+                channelBDiv.classList.add('channel-disabled');
+                
+                // 添加同步提示信息，如果不存在的话
+                if (!channelBDiv.querySelector('.sync-message')) {
+                    const syncMessage = document.createElement('div');
+                    syncMessage.className = 'sync-message';
+                    syncMessage.innerHTML = '<span>⚠️ 已启用A/B通道同步，B通道设置将跟随A通道自动调整</span>';
+                    channelBDiv.insertBefore(syncMessage, channelBDiv.firstChild.nextSibling);
+                }
+                
+                // 禁用所有输入元素
+                inputs.forEach(input => {
+                    input.disabled = true;
+                });
+                
+                // 禁用预设选择
+                presetItems.forEach(item => {
+                    item.classList.add('disabled');
+                    const radio = item.querySelector('input[type="radio"]');
+                    if (radio) radio.disabled = true;
+                });
+            } else {
+                // 启用B通道控制
+                channelBDiv.classList.remove('channel-disabled');
+                
+                // 移除同步提示信息
+                const syncMessage = channelBDiv.querySelector('.sync-message');
+                if (syncMessage) {
+                    channelBDiv.removeChild(syncMessage);
+                }
+                
+                // 启用所有输入元素
+                inputs.forEach(input => {
+                    input.disabled = false;
+                });
+                
+                // 启用预设选择
+                presetItems.forEach(item => {
+                    item.classList.remove('disabled');
+                    const radio = item.querySelector('input[type="radio"]');
+                    if (radio) radio.disabled = false;
+                });
+            }
+        }
+        
+        // 修改AB通道同步切换事件，确保更新通道B状态
+        document.getElementById('ab-channel-sync').addEventListener('change', function() {
+            const syncEnabled = this.checked;
+            
+            sendMessage({
+                type: 'channel_sync_change',
+                enabled: syncEnabled
+            });
+            
+            // 立即更新UI状态，不等待服务器响应
+            updateChannelBState(syncEnabled);
+            
+            logMessage('A/B通道同步已' + (syncEnabled ? '启用' : '禁用'));
+        });
+        
+        // 扩展点JS代码
+        {{EXTENSIONS_JS_HEADER}}
+        {{EXTENSIONS_JS_CONTROL_PANEL}}
+        {{EXTENSIONS_JS_FOOTER}}
     </script>
 </body>
 </html>

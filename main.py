@@ -81,6 +81,9 @@ async def main(args):
                     logger.info(f"插件 {name} 加载成功")
                 else:
                     logger.warning(f"插件 {name} 加载失败")
+            
+            # 添加以下日志输出
+            logger.debug(f"插件加载顺序: {', '.join(results.keys())}")
         
         # 等待服务器运行直到被中断
         logger.info(f"DG-LAB 设备控制服务已启动 - 监听 {args.host}:{args.port}")

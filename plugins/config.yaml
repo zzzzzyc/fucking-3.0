@@ -1,0 +1,5 @@
+enabled_plugins:
+- device_monitor
+- vrchat_osc
+- webui
+- webui_pro

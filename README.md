@@ -9,7 +9,8 @@
 - **波形预设系统**：提供多种可自定义波形预设，满足不同需求
 - **WebSocket接口**：提供标准化的WebSocket通信接口，方便扩展和集成
 - **插件系统**：支持功能扩展，目前包含以下插件：
-  - **WebUI**：基于Web的用户界面，提供直观的设备控制
+  - **WebUI**：基于Web的用户界面，提供直观的设备控制，支持界面扩展
+  - **高级控制面板**：扩展WebUI功能，添加高级波形控制选项
   - **VRChat OSC**：通过OSC协议接收VRChat参数控制设备，支持通配符匹配
   - **设备监控**：提供设备状态监控、自动重连和电池电量警告等功能
 
@@ -29,6 +30,7 @@ dglab-control/
 │   ├── dglab_device.py  # DG-LAB设备控制类
 │   └── models.py        # 数据模型和波形预设
 ├── plugins/             # 插件目录
+│   ├── advanced_panel/  # 高级控制面板插件
 │   ├── device_monitor/  # 设备监控插件
 │   ├── vrchat_osc/      # VRChat OSC插件
 │   ├── webui/           # Web用户界面插件
@@ -117,6 +119,7 @@ presets:
 - **wave_y**: 波形强度 (0-1023)
 - **wave_z**: 波形频率 (0-31)
 - **(应该是吧)(())
+
 ### WebUI 插件
 
 WebUI 插件提供基于Web的设备控制界面，启动后可以通过浏览器访问。
@@ -127,8 +130,56 @@ WebUI 插件提供基于Web的设备控制界面，启动后可以通过浏览�
 - 波形预设选择
 - 设备状态监控
 - 操作日志
+- **插件扩展机制**：允许其他插件向WebUI添加自定义功能
 
 默认访问地址: `http://localhost:5000`
+
+#### WebUI 扩展机制
+
+WebUI插件现在支持扩展点机制，允许其他插件向用户界面添加自定义元素：
+
+1. **扩展点位置**:
+   - 头部扩展区域（Header）：位于页面顶部
+   - 控制面板扩展区域（Control Panel）：位于主控制面板下方
+   - 底部扩展区域（Footer）：位于页面底部
+
+2. **如何创建扩展插件**:
+   ```python
+   # 在自定义插件中添加
+   from plugins.webui.plugin import register_ui_extension
+   
+   def setup():
+       # 注册UI扩展
+       register_ui_extension(
+           "control_panel",  # 扩展点位置
+           "my_extension",   # 扩展名称
+           """
+           <div class="my-ui-extension">
+               <h3>我的扩展</h3>
+               <!-- HTML内容 -->
+           </div>
+           """,
+           """
+           // JavaScript代码
+           document.getElementById('my-button').addEventListener('click', function() {
+               // 按钮点击逻辑
+           });
+           """
+       )
+   ```
+
+3. **现有扩展示例**:
+   - **高级控制面板**插件：添加了波形循环速度、混合模式等高级控制选项
+
+### 高级控制面板插件
+
+高级控制面板插件是WebUI扩展机制的示例实现，提供更高级的设备控制功能。
+
+#### 功能:
+- 波形循环速度调整
+- 波形混合模式选择（顺序、混合、随机）
+- A/B通道同步控制
+- 帮助信息面板
 
 ### VRChat OSC 插件
 
@@ -214,10 +265,63 @@ monitor:
 - 错误处理与日志完善
 - 基本复现官方app功能
 
-### 阶段三：（计划中）
+### 阶段三：UI与插件扩展（进行中）
+- WebUI插件扩展机制
+- 高级控制面板插件
+- 更多自定义UI组件
+- 扩展API完善
+
+### 阶段四：（计划中）
 - 优化优化优化优化优化优化优化
 - 新功能新功能新功能新功能新功能新功能
-- 高级控制面板
+
+## 开发插件
+
+### 标准插件结构
+
+要创建新插件，请遵循以下结构：
+
+```
+plugins/your_plugin/
+├── plugin.py       # 主插件文件
+└── README.md       # 插件文档
+```
+
+`plugin.py` 必须包含以下函数：
+
+```python
+def setup():
+    """插件初始化函数"""
+    pass
+
+async def handle_message(websocket, message_data):
+    """处理WebSocket消息"""
+    return False  # 返回True表示消息已处理，False表示未处理
+
+def cleanup():
+    """插件清理函数"""
+    pass
+```
+
+### 创建WebUI扩展
+
+要向WebUI添加自定义功能，可以使用`register_ui_extension`函数：
+
+```python
+try:
+    from plugins.webui.plugin import register_ui_extension
+except ImportError:
+    register_ui_extension = None
+
+def setup():
+    if register_ui_extension:
+        register_ui_extension(
+            extension_point,  # "header", "control_panel", "footer"
+            name,            # 唯一标识符
+            html_content,    # HTML内容
+            js_content       # JavaScript代码（可选）
+        )
+```
 
 ## 故障排除
 
@@ -233,6 +337,7 @@ monitor:
 - **设备无法连接**: 确保蓝牙已启用，设备已开启且电量充足
 - **OSC 消息不触发**: 检查 VRChat OSC 设置和插件配置中的参数路径是否匹配
 - **WebUI 无法访问**: 检查防火墙设置，确保端口 5000 未被占用
+- **插件加载失败**: 检查插件结构和必要函数是否正确实现
 
 ## 贡献
 

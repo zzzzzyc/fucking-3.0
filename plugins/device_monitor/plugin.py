@@ -93,6 +93,7 @@ async def handle_message(device, data: Dict[str, Any]) -> Dict[str, Any]:
     global config
     
     try:
+        # 只处理本插件相关的消息
         if data.get("type") != "plugin_device_monitor":
             return {"status": "ignored"}
             
