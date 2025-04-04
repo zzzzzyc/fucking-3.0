@@ -46,13 +46,12 @@ dglab-control/
 
 ### 安装
 
-1. 克隆仓库
-```bash
-git clone https://github.com/your-username/dglab-control.git
-cd dglab-control
-```
+1. 下载realease
+- 在右侧realease中点击最新realease，点击Sourse Code (zip)，然后解压
 
 2. 安装依赖
+- 打开解压文件夹，在上方地址栏输入“powershell"
+- 确保已安装python
 ```bash
 python -m venv venv
 # Windows
