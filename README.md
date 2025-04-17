@@ -35,6 +35,7 @@ dglab-control/
 │   ├── vrchat_osc/      # VRChat OSC插件
 │   ├── webui/           # Web用户界面插件
 │   └── plugin_loader.py # 插件加载器
+|   .......
 ├── server/              # 服务器模块
 │   └── ws_server.py     # WebSocket服务器
 ├── main.py              # 主程序入口
