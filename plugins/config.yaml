@@ -3,3 +3,4 @@ enabled_plugins:
 - vrchat_osc
 - webui
 - webui_pro
+- http_api
